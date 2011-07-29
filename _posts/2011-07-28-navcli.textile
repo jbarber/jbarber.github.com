@@ -1,0 +1,86 @@
+--- 
+title: EMC NaviCLI
+layout: post
+tags: EMC navicli
+---
+
+The @navicli@ command (or @naviseccli@ if you have the SSL version) allows you to query and configure an EMC CLARiiON array, it can be much quicker to use than the Java GUI with the CX3 and CX4's, and of course it allows you to automate operations (creating hundreds of LUNs is now not a problem). Finding the download to get the software can be though. When I looked for it, I logged onto "Powerlink":http://powerlink.emc.com, naviagated to "Support", then "Software Downloads and Licensing", "Downloads N", "Navisphere Server Software",  and grabbed the x86 Navisphere CLI RPM download to get @NaviCLI-Linux-32-x86-en_US-7.30.11.0.38-1.i386.rpm@. Simple, eh?
+
+First you can create a security files under $HOME in @SecuredCLISecurityFile.xml@ and @SecuredCLIXMLEncrypted.key@ which contains the credentials for logging into an CLARiiON so you don't have to keep on providing them:
+
+<pre class="brush: bash">
+$ export PATH=$PATH:/opt/Navisphere/bin
+$ naviseccli -addUserSecurity -scope 0 -user admin -password clariion 
+</pre>
+
+Then you can actually connect to your array and start getting information back:
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa getconfig
+</pre>
+
+The @getconfig@ is the command. The commands generally have a @-xml@ option for generating parsable output, and an @-o@ argument so that the command doesn't prompt for confirmation. Just run @naviseccli@ without any commands to see all of the possible commands.
+
+The commands don't have help with them to tell you what they do (although using @--help@ as an argument tends to make them print out usage information), and some of them are pretty damn dangerous to be running without knowing what they do, so I recomend having the manual "'EMC® Navisphere® Command Line Interface (CLI) (part number 300-003-628)'":https://community.emc.com/servlet/JiveServlet/download/443370-6640/EMC%20Navisphere%20Command%20Line%20Interface%20Reference%20R29.pdf close to hand before going cowboy.
+
+The one bad thing about the command is that the single most frustrating thing I find with the CLARiiON GUI interface - adding new hosts - can't be done without the Navisphere Host Agent, which I can't find for download on Powerlink. Grr.
+
+Anyhow, some examples. First, get all of the storage groups:
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa storagegroup -list | grep -m 3 "Storage Group Name"
+Storage Group Name:    ESX-HP-BLADE-6
+Storage Group Name:    ESX05_8
+Storage Group Name:    ESX-HP-BLADE-3
+</pre>
+
+Then find the details for the storage group (by name), including the hosts that are in it:
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa storagegroup -list -gname ESX-HP-BLADE-6 -host | head -25
+
+Storage Group Name:    ESX-HP-BLADE-6
+Storage Group UID:     AE:39:EE:47:29:DC:DF:11:BF:F6:00:60:16:40:7D:CE
+HBA/SP Pairs:
+
+  HBA UID                                          SP Name     SPPort
+  -------                                          -------     ------ 
+  50:01:43:80:09:AA:3E:87:50:01:43:80:09:AA:3E:86   SP A         1
+Host name:             esx-hp-blade6
+  50:01:43:80:09:AA:3E:87:50:01:43:80:09:AA:3E:86   SP B         1
+Host name:             esx-hp-blade6
+  50:01:43:80:09:AA:3E:85:50:01:43:80:09:AA:3E:84   SP A         0
+Host name:             esx-hp-blade6
+  50:01:43:80:09:AA:3E:85:50:01:43:80:09:AA:3E:84   SP B         0
+Host name:             esx-hp-blade6
+
+HLU/ALU Pairs:
+
+  HLU Number     ALU Number
+  ----------     ----------
+    0               57
+    8               7
+    16              15
+    1               0
+    27              42
+</pre>
+
+Create (bind) a RAID5 (@r5@) LUN to raid group 21 (@-rg@) of size 1GB (@-sq@ gb sets the GB, but GB is the default unit):
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa bind r5 -rg 21 -cap 1 -sq gb
+</pre>
+
+It has to be said this command is a bit rubbish as you can't tell which LUN you just created! You can specify which LUN number you want to allocate (put the number after the @r5@ RAID5 specification). But then you have to know the free LUNs. Alternatively, you can run the following command before and after the binding and compare the output to see which LUN was created:
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa getlun | grep ^LOGICAL
+</pre>
+
+Add LUN 100 on the storage system (alu == the actual LUN?) to the storage group @ESX-HP-BLADE-6@ but export it to the host as LUN 50 (hlu == host LUN?):
+
+<pre class="brush: bash">
+$ naviseccli -h cx4-240-spa storagegroup -addhlu -gname ESX-HP-BLADE-6 -alu 100 -hlu 50
+</pre>
+
+The @getagent@ and @getall@ commands return information about the storage array. @getagent@ is more focused on the just the storage processors, whereas @getall@ gives you a massive datadump. All cool stuff.
