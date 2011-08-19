@@ -1,0 +1,23 @@
+---
+title: Fibre Channel fun
+layout: post
+tags: HP MSA linux
+---
+
+I had a problem the other day, and the normally mighty Google didn't help much, probably because the error I ran into was too obscure, so I'm describing it here in case any other poor sod runs into it.
+
+I was directly connecting a HP DL360 G7 with a Brocade FC HBA (HP part 82B, Brocade 825) loaded with RHEL5.4 to a HP MSA2012fc, and after installing the drivers (which don't seem to have made it into the latest HP Proliant Support Pack) started getting weird errors every few seconds:
+
+<pre>
+Feb 20 12:45:02 foobar kernel: BFA[0000:09:00.0][critical] HAL_HEARTBEAT_FAILURE: Firmware heartbeat failure at 61 
+Feb 20 12:45:02 foobar kernel: BFA[0000:09:00.0][error] BFA_AEN_PORT_DISCONNECT: Base port (WWN = 10:00:00:05:33:48:b0:e6) lost fabric connectivity.
+Feb 20 12:45:02 foobar kernel: BFA[0000:09:00.0][critical] BFA_AEN_IOC_HBFAIL: Heart Beat of IOC 0 has failed.
+Feb 20 12:45:02 foobar kernel: BFA[0000:09:00.1][error] BFA_AEN_PORT_DISCONNECT: Base port (WWN = 10:00:00:05:33:48:b0:e7) lost fabric connectivity.
+Feb 20 12:45:02 foobar kernel: BFA[0000:09:00.1][critical] BFA_AEN_IOC_HBFAIL: Heart Beat of IOC 1 has failed.
+Feb 20 12:45:04 foobar kernel: BFA[0000:09:00.1][info] BFA_AEN_PORT_ONLINE: Base port online: WWN = 10:00:00:05:33:48:b0:e7.
+Feb 20 12:45:04 foobar kernel: BFA[0000:09:00.0][info] BFA_AEN_PORT_ONLINE: Base port online: WWN = 10:00:00:05:33:48:b0:e6.
+</pre>
+
+Troubleshooting wasn't helped by the fact that the hosts and storage controllers were behind a bastion SSH gateway, and much ssh tunnelling was requried to gain HTTP access to the storage controllers (they do have an SSH CLI, but I'm not overly familiar with it).
+
+I'd remembered that later versions of the MSA default to putting their host ports into arbitrated loop mode and this hasn't been a problem when connecting them to FC switches (although I normally do change them), but I thought it might be a problem with directly connecting an initiator. Indeed, once I managed to change the setting on the MSA to point-to-point the error messages disappeared from the linux host.
