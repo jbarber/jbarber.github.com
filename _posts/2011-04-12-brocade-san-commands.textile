@@ -1,0 +1,20 @@
+--- 
+title: Finding devices in a Brocade SAN from the switch command line
+layout: post
+tags: Brocade SAN CLI
+---
+
+I've been using Brocade SAN switches for a while now, and always wondered how to find where in a fabric a device is connected using the switch command line - like you can through the Java GUI Name Server dialog. The @switchshow@ command lists the WWNs of devices connected to a switch, and you can dump the local nameserver with the @nsshow@ command - but these only show the devices connected to the switch that you've logged into. The @nsallshow@ command reports all of the fabric addresses in the fabric - but this is fairly useless as there doesn't seem to be any other commands that use fabric addresses, or resolve them to WWNs!
+
+Finally I've discovered the two commands:
+* @nscamshow@
+* @nodefind@
+
+@nscamshow@ shows the contents of the name server's on remote switches in the fabric, and @nodefind@ allows you search the name server for a device by WWN, Port ID, or alias. If you're searching with @nodefind@ and the WWN, then you'll get back a hexadecimal PID in which the first two octets are the switch ID and the next two are the port number. You can then find the switch IDs using @fabricshow@.
+
+Annoying, neither of these commands is referenced from the man pages for @nsshow@, @nsallshow@, or @switchshow@ - so it's no wonder I never found them.
+
+The following command dumps all of the WWNs in the name server and the switches they are on:
+<pre>(nscamshow; echo "Switch entry for local"; nsshow) | grep -E '^(Switch| *N )'</pre>
+
+Time to re-read the manuals and see if there are any other interesting commands I've missed.
