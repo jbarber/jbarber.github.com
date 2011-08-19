@@ -1,0 +1,21 @@
+---
+title: Not so simple SNMP
+layout: post
+tags: SNMP monitoring
+---
+
+I've been implementing a "Nagios":http://www.nagios.org based monitoring system for a medium sized system over the last few weeks. It's complicated because the system contains a sub-system which has it's own specific Nagios monitoring, as well as using HP-SIM and Oracle Enterprise Manager to monitor the hardware and Oracle databases. My Nagios install is there to check everything else which includes SNMP traps from various pieces of software and hardware, and that's where things start to get interesting.
+
+I have all of the traps within the system being sent to the "Net-SNMP":http://www.net-snmp.org snmptrapd, which is configured to forward all of the traps it receives to our customer's upstream NMS (Network Management Station in SNMP parlance) and at the same time submit the traps to Nagios as passive checks via "SNMPTT":http://snmptt.sourceforge.net.
+
+SNMP basically has two versions that I care about, version 1 and version 2; and the major difference between the traps for the different versions is the information that they must carry. SNMP v2 is looser, requiring only the uptime of the agent (the thing sending the trap) and an OID (object identifier) which tells you what the trap is about. SNMP v1 traps have these values as well as the address of the agent and the trap type. The important difference for me has been the inclusion of the agent address in SNMP v1 traps, and it's absence as a mandatory field in v2.
+
+The big question for me has been: when forwarding a SNMP v2 trap to the upstream NMS, how do you communicate which agent originally raised the trap? The problem is that the forwarded v2 traps all look like they've been sent by the Nagios host instead of the original agent (because of the IP source address), and I want to have the traps forwarded in case I make a configuration mistake in my Nagios.
+
+As far as I can tell, there isn't a standard variable-binding (the OID/values pairs sent in the trap) to identify the agent. And even if there was; what should be done by my snmptrapd when it receives an SNMP v2 trap that don't contain the agent address (which would happen when they are sent by hardware agents that don't know to include their own address)?
+
+Modification of snmptrapd via it's embedded Perl handles to forward traps after adding the agent address looks like a good way to proceed (and quite cool as well), but seems a little excessive at the same time - especially when I can't find anybody else who wants to do the same thing. It does make me wonder - what's the standard way of forwarding v2 traps - or is it something that just isn't done?
+
+Are the traps normally consumed by intermediate management stations, before being resent as events are triggered? Or does everyone have custom forwarding mechanisms and there is no best practice?
+
+I'm hoping that further research will give me a clue as to what the "best" solution is, but I'm not sure that my luck will hold.
