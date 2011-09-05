@@ -1,0 +1,79 @@
+--- 
+title: Minimal Apache Configuration
+layout: post
+tags: apache python kickstart hp
+---
+
+I've just been trying to kickstart RHEL5 onto HP hardware (DL360-somthing-or-other) when using the Python SimpleHTTPServer to export my kickstart file and the distribution ISO. You can use the python SimpleHTTPServer module like this:
+
+<pre class="brush: bash">
+python -m SimpleHTTPServer 8000
+</pre>
+
+and it will start a daemon that listens on port 8000 and exposes the working directory hierarchy. This is nice because python comes by default on almost all Red Hat installs (you have to have a *really* small install to not get it either directly or as a dependency) and it means that you don't have to have Apache if you just need a little HTTP action.
+
+For some reason though, it wasn't able to serve the @boot.iso@ (so that I could mount it via the HP's ILO virtual media facility) or some of the RPMs from the mounted OS ISO image. Instead it hung and then gave a stack trace when the client got bored:
+
+<pre class="brush: python">
+----------------------------------------
+myserver - - [05/Sep/2011 12:51:29] "GET /./Server/shadow-utils-4.0.17-14.el5.x86_64.rpm HTTP/1.1" 200 -
+----------------------------------------
+Exception happened during processing of request from ('10.10.10.10', 42126)
+Traceback (most recent call last):
+  File "/usr/lib64/python2.4/SocketServer.py", line 222, in handle_request
+    self.process_request(request, client_address)
+  File "/usr/lib64/python2.4/SocketServer.py", line 241, in process_request
+    self.finish_request(request, client_address)
+  File "/usr/lib64/python2.4/SocketServer.py", line 254, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/usr/lib64/python2.4/SocketServer.py", line 521, in __init__
+    self.handle()
+  File "/usr/lib64/python2.4/BaseHTTPServer.py", line 316, in handle
+    self.handle_one_request()
+  File "/usr/lib64/python2.4/BaseHTTPServer.py", line 310, in handle_one_request
+    method()
+  File "/usr/lib64/python2.4/SimpleHTTPServer.py", line 43, in do_GET
+    self.copyfile(f, self.wfile)
+  File "/usr/lib64/python2.4/SimpleHTTPServer.py", line 163, in copyfile
+    shutil.copyfileobj(source, outputfile)
+  File "/usr/lib64/python2.4/shutil.py", line 25, in copyfileobj
+    fdst.write(buf)
+  File "/usr/lib64/python2.4/socket.py", line 256, in write
+    self.flush()
+  File "/usr/lib64/python2.4/socket.py", line 243, in flush
+    self._sock.sendall(buffer)
+error: (104, 'Connection reset by peer')
+</pre>
+
+The same files were accessible using curl from the localhost, so I'm not quite sure what the cause was. Anyhow, rather than debug that, I did some hack'n'slashing on the Apache config to get the smallest config I could:
+
+<pre class="brush: bash">
+yum install -y httpd
+mkdir -p /tmp/repo/logs
+cat <<EOF > /tmp/repo/minimal.conf
+User apache
+Group apache
+
+LoadModule dir_module /usr/lib64/httpd/modules/mod_dir.so
+LoadModule autoindex_module /usr/lib64/httpd/modules/mod_autoindex.so
+
+Listen *:8000
+
+ServerRoot /tmp/repo
+DocumentRoot /tmp/repo
+
+<Directory /tmp/repo>
+  Options Indexes
+</Directory>
+EOF
+httpd -d /tmp/repo -f minimal.conf -k start
+</pre>
+
+To clean up afterwards you've shared the files:
+
+<pre class="brush: bash">
+httpd -d /tmp/repo -f minimal.conf -k stop
+rm -rf /tmp/repo
+</pre>
+
+This will serve up @/tmp/repo@ and all of the subdirectories in a browsable fashion on port 8000. I would not recommend using this configuration to serve files for any length of time (the normal httpd configuration will do a much better job of that) - but it's useful for a quick and dirty hack.
