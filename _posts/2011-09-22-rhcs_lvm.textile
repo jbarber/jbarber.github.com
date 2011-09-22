@@ -1,0 +1,27 @@
+--- 
+title: RHCS LVM manipulation
+layout: post
+tags: rhcs_lvm
+---
+
+If you have non-clustered LVM volumes managed by RHCS (so called HA-LVM), you should have configured @/etc/lvm/lvm.conf@ to have a host tag in the @activation/volume_list@ configuration entry (as per the "fine documentation":https://fedorahosted.org/cluster/wiki/LVMFailover). This stops the RHCS managed LVM VGs and LVs from being activated (and therefore becoming accessible) during normal operation on nodes that RHCS doesn't think should have access. This is a safety feature to prevent a non-clustered filesystem from being mounted on two different hosts at the same time.
+
+However, this can be a pain in some cases, usually when RHCS is down and you need to do some administrative work on the data in the LVM's LVs. Changing the @/etc/lvm/lvm.conf@ to remove the @volume_list@ configuration is a pain because RHCS checks that it's modification time is older than the systems initrd (to make sure you rebuild the initrd so it includes the new @lvm.conf@ so when the system reboots it comes up with the right LVM configuration). There are two ways around this; first manually add and then delete the tag:
+
+<pre class="brush: bash">
+vgchange --addtag @$(uname -n) $VGNAME
+# Do the work here
+vgchange --deltag @$(uname -n) $VGNAME
+</pre>
+
+Or secondly (and my favourite), override the LVM configuration on the command-line:
+
+<pre class="brush: bash">
+vgchange -ay $VGNAME --config "activation { volume_list = [ '$VGNAME' ] }"
+</pre>
+
+Deactivating the VG doesn't require the @--config@ argument:
+
+<pre class="brush: bash">
+vgchange -an $VGNAME
+</pre>
