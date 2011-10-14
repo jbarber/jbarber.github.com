@@ -1,0 +1,23 @@
+--- 
+title: Stupid PostgreSQL trick
+layout: post
+tags: postgres gdb
+---
+
+(This should probably be called a GDB trick, but it came to me whilst looking at PostgreSQL)
+
+PostgreSQL can output messages according to the configuration option @log_min_duration_statement@ which is normally configured in your database's @postgresql.conf@. When set to positive values, any query that takes longer than this (in milliseconds) is logged; when set to 0, all statements are logged; and when set to -1 no logging is made.
+
+This can be set to 1 millisecond in your session by issuing the command "@set log_min_duration_statement to 1@", but it's not easily changed outside of your session. This is a problem if you want to monitor another session which you don't have control over (such as a long running client program which you can't reconfigure). 
+
+One way of solving this would be to create a plugin loaded by PostgreSQL on session startup, which creates a shared memory segment which could be used for communication between sessions to change settings. This has a lot of moving parts, and would be quite cool to put together, but a bit too much work for me at the moment. Instead, whilst I was browsing the PostgreSQL source I realized that the configuration options are controlled by global variables, and the @log_min_duration_statement@ is a simple integer, so if I could change it then it will be reflected in the behaviour of the program. Enter GDB; with which we can easily change data in a running program.
+
+To get it to work idealy we need GDB and a version of PostgreSQL which has debug info included; either by compiling with @./configure --enable-debug@, or installing the debuginfo RPMs/dbgsym DEBs. Then start the DB and create a session and change settings at will:
+
+<pre>
+gdb --batch --ex 'set var log_min_duration_statement=0' -p 20378
+</pre>
+
+Here @-p 20378@ refers to the process ID of the backend process for the session, and @set var log_min_duration_statement=0@ changes the @log_min_duration_statement@ setting to 0. 
+
+Of course, changing a relatively simple variable like this will have no side effects, but if you start messing with variables that allocate memory, you're probably going to cause all kinds of seg-faults.
