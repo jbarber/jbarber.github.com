@@ -1,0 +1,68 @@
+--- 
+title: Getting Going With Mock
+layout: post
+tags: mock
+---
+
+I've just been installing "mock":https://fedorahosted.org/mock/ on RHEL5 with the intention of getting our developers to use it instead of requesting 20 different VMs of different CPU architectures and RHEL versions to build their RPM packages on. Again. So here are my notes for the next time I do it.
+
+First you should configure yum to use EPEL so you can easily install mock, then just install it:
+
+<pre class="brush: bash">
+# yum install  --enablerepo=epel5 mock
+</pre>
+
+Create a mock user (which has to have "mock" as a secondary group):
+
+<pre class="brush: bash">
+# adduser -G mock -g mock mock
+</pre>
+
+Create some storage for the mock repositories:
+
+<pre class="brush: bash">
+# lvcreate -n lv_var_lib_mock -l 100%FREE vg00
+# mkfs -t ext3 /dev/vg00/lv_var_lib_mock
+# echo /dev/vg00/lv_var_lib_mock  /var/lib/mock  ext3    defaults        0  0 >> /etc/fstab
+# ( FOO=$(mktemp) column -t /etc/fstab $FOO && mv $FOO /etc/fstab )
+# mount /dev/vg00/lv_var_lib_mock
+# chgrp mock /var/lib/mock
+# chmod 2775 /var/lib/mock
+</pre>
+
+Create the mock configuration for RHEL:
+
+<pre class="brush: bash">
+# cp /etc/mock/{epel,rhel}-5-x86_64.cfg
+</pre>
+
+And now modify it to use the repositories you want and add proxy configuration. Then build your packages!:
+
+<pre class="brush: bash">
+# su - mock
+$ mock --disable-plugin='ccache' -r rhel-5-x86_64 /tmp/bc-1.06-21.src.rpm
+...
+</pre>
+
+ccache is used by mock to speed up compiles, but it is provided by EPEL and you might might not have included EPEL in your repo list. This will cause your SRPM build to fail, so I disabled in the previous run on the command line. You can also disable it in the @rhel-5-x86_64.cfg@ config file by setting the parameter:
+@config_opts['plugin_conf']['ccache_enable'] = False@
+
+By default, the output from the build is put under @/var/lib/mock/rhel-5-x86_64/result@.
+
+If you have problems you can enter the chroot to see what might be going wrong:
+
+<pre class="brush: bash">
+$ mock -r rhel-5-x86_64 --shell
+INFO: mock.py version 1.0.22 starting...
+State Changed: init plugins
+INFO: selinux enabled
+WARNING: selinux: 'yum' does not support '--setopt' option
+State Changed: start
+State Changed: lock buildroot
+mock-chroot> ls
+bin  boot  builddir  dev  etc  home  lib  lib64  media	mnt  opt  proc	root  sbin  selinux  srv  sys  tmp  usr  var
+mock-chroot> exit
+State Changed: unlock buildroot
+State Changed: end
+$ 
+</pre>
