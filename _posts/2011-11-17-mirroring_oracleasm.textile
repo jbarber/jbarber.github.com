@@ -1,0 +1,21 @@
+--- 
+title: Mirroring OracleASM
+layout: post
+tags: Mirroring OracleASM
+---
+
+Before I forget, this is the command I'm using to mirror the OracleASM RPMs for RHEL5 x86_64:
+
+<pre class="brush: bash">
+wget -e robots=off -H -D oss.oracle.com -r -l 1 -nd -c -A.x86_64.rpm \
+  http://www.oracle.com/technetwork/server-storage/linux/downloads/rhel5-084877.html
+</pre>
+
+The important bits are the @-H@ and @-D@ options, which tell wget that mirroring is allowed across domains (as the RPMs live on @oss.oracle.com@) and that the only domain to mirror is @oss.oracle.com@.
+
+To grab the i386 packages, replace @-A.x86_64.rpm@ with @-A.i386.rpm -A.i686.rpm@:
+
+<pre class="brush: bash">
+wget -e robots=off -H -D oss.oracle.com -r -l 1 -nd -c -A.i386.rpm -A.i686.rpm \
+  http://www.oracle.com/technetwork/server-storage/linux/downloads/rhel5-084877.html
+</pre>
