@@ -7,17 +7,20 @@ tags: cvs through a http proxy
 The version of CVS packages with Fedora 15 doesn't seem to support use through a HTTP proxy. I am behind a proxy and wish to access CVS repositories on SourceForge, how to do this? Short answer, use socat.
 
 The normal CVS commands would be:
+
 <pre class="brush: bash">
 cvs -d:pserver:anonymous@bastille-linux.cvs.sourceforge.net:/cvsroot/bastille-linux login 
 cvs -z3 -d:pserver:anonymous@bastille-linux.cvs.sourceforge.net:/cvsroot/bastille-linux co -P dev
 </pre>
 
 Assuming the HTTP proxy is at 10.10.10.10:3128, first start socat:
+
 <pre class="brush: bash">
 socat TCP4-LISTEN:2401,fork PROXY:10.10.10.10:bastille-linux.cvs.sourceforge.net:2401,proxyport=3128
 </pre>
 
 and then point the CVS client at the socat process:
+
 <pre class="brush: bash">
 cvs -z3 -d:pserver:anonymous@127.0.0.1:/cvsroot/bastille-linux login
 cvs -z3 -d:pserver:anonymous@127.0.0.1:/cvsroot/bastille-linux co -P dev
