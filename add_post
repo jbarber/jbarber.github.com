@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [[ $# == 0 ]]; then
+	echo "Pass the title (with spaces) as the arguments"
+	exit 1
+fi
+
+FILE=_posts/$(date -I)-$(echo $* | tr A-Z a-z | tr ' ' _).textile
+if [ ! -e $FILE ]; then
+	cat <<-EOF > $FILE
+		--- 
+		title: $*
+		layout: post
+		tags: $*
+		---
+	EOF
+fi
+
+vim -c $ _posts/$(date -I)-$(echo $* | tr ' ' _).textile
