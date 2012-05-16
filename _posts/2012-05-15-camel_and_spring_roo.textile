@@ -1,0 +1,209 @@
+--- 
+title: Camel and Spring Roo
+layout: post
+tags: Camel and Spring Roo
+---
+
+h1. Introduction
+
+Recently I've been looking at solutions for integrating monitoring alarms from various vendor systems. This is a problem because the company I work for buys hardware and software from different vendors, and they each have their own monitoring system with which they are trying to add value to their offerings. Because we never want to miss an alarm because our own monitoring didn't check for a condition, this means we often end up with 3-4 monitoring systems for each solution. Normally these are configured to just send alerts to the clients NMS via SNMP traps - but this can often mean a flood of traps are received, and it's difficult for us to see what's going on (as we don't have access to their NMS) with the system as a whole.
+
+So, I've been investigating integration frameworks and discovered "Apache Camel":http://camel.apache.org/. Camel includes many components (the parts which receive and send data) and supports Enterprise Integration Patterns (EIP) commonly used to munge data from various sources. The idea would be to collect alarms and traps from the various systems and dump them all in a database for viewing.
+
+I've also been eying "Spring Roo":http://www.springsource.org/spring-roo to assist with building an app to view the events. Spring Roo presents a simple interface for creating a Spring project which can tie together a DB (with an ORM of your choice) and a web interface.
+
+The rest of this article is a simple example of how I got Spring Roo to work with Camel.
+
+I'm new to the Java ecosystem, so this was all new to me - it's quite possible there are errors or I did things the "wrong" way. Caveat Emptor.
+
+h1. Versions 
+
+I used the Oracle JDK JVM version 1.6.0_25 (x86) on Fedora 15 with Camel 2.9.2 (will be downloaded by Maven), Spring Roo 1.2.1, and Maven 3.0.4. For persistance I used PostgreSQL 9.0.7 packaged by Fedora.
+
+h1. Getting started
+
+Go to the Root "site":http://www.springsource.org/spring-roo#try for links to download Java, Maven, and Spring Roo. Once you have these depenencies, unpack Spring Roo and add the @bin@ directory to your @PATH@ environment variable. Then create a directory for your project and run the Roo shell:
+
+<pre class="brush: bash">
+mkdir camel-roo
+cd camel-roo
+roo.sh
+</pre>
+
+This will open a shell within which you can create Roo objects.
+
+h1. Creating the Database Interface
+
+First we will configure the project package and define how we will communicate with the database:
+
+<pre class="brush: bash">
+roo> project --topLevelPackage camel.roo
+roo> jpa setup --provider HIBERNATE --database POSTGRES 
+roo> database properties set --key database.password --value camel
+roo> database properties set --key database.username --value camel
+roo> database properties set --key database.url --value "jdbc:postgresql://localhost:5432/camel"
+</pre>
+
+If you don't want to bother with configuring PostgreSQL, you can use use @HYPERSONIC_IN_MEMORY@ which will start and stop with the JVM. We can then define how we're going to store the SNMP traps in the database:
+
+<pre class="brush: bash">
+roo> entity jpa --class ~.Trap
+roo> field string --fieldName trap
+</pre>
+
+This defines a single class with a field @trap@ that holds a string representing the trap. The @~@ expands to the project package @camel.roo@.
+
+h1. Adding Camel
+
+To add Camel to the mix we need to modify the Maven @pom.xml@ in the root directory of the project to add a dependency for Camel:
+
+<pre class="brush: xml">
+<project ...>
+  ...
+  <dependencies>
+    ...
+      <dependency>
+        <groupId>org.apache.camel</groupId>
+        <artifactId>camel-core</artifactId>
+        <version>2.9.2</version>
+      </dependency>
+        <dependency>
+        <groupId>org.apache.camel</groupId>
+        <artifactId>camel-spring</artifactId>
+        <version>2.9.2</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.camel</groupId>
+        <artifactId>camel-snmp</artifactId>
+        <version>2.9.2</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.camel</groupId>
+        <artifactId>camel-jpa</artifactId>
+        <version>2.9.2</version>
+      </dependency>
+    ...
+  </dependencies>
+  ...
+  <build>
+    <plugins>
+      ...
+      <plugin>
+        <groupId>org.apache.camel</groupId>
+        <artifactId>camel-maven-plugin</artifactId>
+        <version>2.9.2</version>
+      </plugin>
+      ...
+    </plugins>
+  </build>
+</project>
+</pre>
+
+We then create the Camel configuration in Spring in the file @src/main/resources/META-INF/spring/camel-context.xml@:
+
+<pre class="brush: xml">
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+  <bean id="jpa" class="org.apache.camel.component.jpa.JpaComponent">
+    <property name="entityManagerFactory" ref="entityManagerFactory" />
+  </bean>
+
+  <camel:camelContext xmlns="http://camel.apache.org/schema/spring">
+    <camel:route>
+      <camel:from uri="snmp://127.0.0.1:1162?type=TRAP"/>
+      <camel:convertBodyTo type="camel.roo.Trap"/>
+      <camel:to uri="jpa:camel.roo.Trap"/>
+    </camel:route>
+  </camel:camelContext>
+</beans>
+</pre>
+
+This defines that SNMP traps will be recieved on port 1162 on the loopback address (127.0.0.1) and will be converted into the class camel.roo.Trap and then delivered to that JPA object. This object was created for us by Roo with the @entity jpa --class ~.Trap@ command. The @entityManagerFactory@ bean was created by the @jpa setup@ command and is defined in the @applicationContext.xml@ file.
+
+This leaves us the job of converting data from the SNMP trap to the JPA object. Camel can handle many convertions, but doesn't know how to handle our Trap object, so we have to write a simple convertor. The code for this is held in the file @src/main/java/camel/roo/TrapConverter.java@ (maybe not the best location):
+
+<pre class="brush: java">
+package camel.roo;
+
+import org.apache.camel.Converter;
+import org.apache.camel.Exchange;
+import org.apache.camel.TypeConverter;
+
+@Converter
+public final class TrapConverter {
+  @Converter
+  public static Trap toTrap (String body, Exchange exchange) {
+    TypeConverter converter = exchange.getContext().getTypeConverter();
+    Trap trap = new Trap();
+    trap.setTrap( body );
+    return trap;
+  }
+}
+</pre>
+
+We then tell Camel that we've added a converter by adding the class of the converter to the file @src/main/resources/META-INF/services/org/apache/camel/TypeConverter@. (When running Camel via the Maven Camel plugin this isn't required, but seems to be needed later when we run the Camel context from within Tomcat)
+ 
+<pre class="brush: bash">
+echo camel.roo.TrapConverter > src/main/resources/META-INF/services/org/apache/camel/TypeConverter
+</pre>
+
+Now start Camel with Maven and send a test trap:
+
+<pre class="brush: bash">
+mvn camel:run &
+snmptrap -c public -v 1 127.0.0.1:1162 0 $HOSTNAME 0 1 '' 0 s 'foo'
+</pre>
+
+and query the DB to see that the trap has been added:
+
+<pre class="brush: bash">
+$ psql -U camel camel --password -h 127.0.0.1 -c 'select * from trap'
+Password for user camel: 
+ id |                             trap                             | version 
+----+--------------------------------------------------------------+---------
+  1 | <snmp><entry><oid>0.0</oid><value>foo</value></entry></snmp> |       0
+(1 row)
+</pre>
+
+h1. Creating a Web Interface
+
+Switching back to the Roo shell we can create a web interface for the DB:
+
+<pre class="brush: bash">
+roo> web mvc setup
+roo> web mvc all --package ~.web
+</pre>
+
+and then start the interface with Maven on port 8080 (whilst the previous Maven instance is still running!):
+
+<pre class="brush: bash">
+mvn tomcat:run
+</pre>
+
+h1. Deploying Camel in Tomcat
+
+The default behaviour of Hibernate and Roo is to drop the database schema, so everytime we start either the Camel process or Tomcat instance we clear the data in the DB. Change this Hiberante behaviour by editing the file @src/main/resources/META-INF/persistence.xml@ and modify the line:
+
+<pre class="brush: xml">
+  <property name="hibernate.hbm2ddl.auto" value="create"/>
+</pre>
+
+to:
+
+<pre class="brush: xml">
+  <property name="hibernate.hbm2ddl.auto" value="validate"/>
+</pre>
+
+We'll then alter the Spring configuration so that I don't have to run two JVMs. To do this update the file @src/main/resources/META-INF/spring/applicationContext.xml@ so that it containst the element:
+
+<pre class="brush: xml">
+  <import resource="camel-context.xml"/>
+</pre>
+
+This will import the Camel context and execute it when starting. Now when we start Tomcat we'll also get the trap handling.
