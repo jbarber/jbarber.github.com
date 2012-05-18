@@ -1,0 +1,34 @@
+--- 
+title: Remote syslog from the command line
+layout: post
+tags: Remote syslog from the command line
+---
+
+I wanted to test sending syslog messagest to remote hosts, but the @logger@ utility doesn't support sending syslog messages to remote hosts. To do the test I came up with the following Perl one-liner:
+
+<pre class="brush: bash">
+perl -MSys::Syslog=:standard,:extended -e 'setlogsock(udp => shift);
+  openlog(qw(test cons user));
+  syslog(emerg => "@ARGV")' 1.2.3.4 message to send
+</pre>
+
+Older versions of the module (found in RHEL5) don't support supplying the host in @setlogsock()@:
+
+<pre class="brush: bash">
+perl -MSys::Syslog=:standard,:extended -e 'setlogsock("udp"); $Sys::Syslog::host = shift;
+  openlog(qw(test cons user));
+  syslog(emerg => "@ARGV")' 1.2.3.4 message to send
+</pre>
+
+If the system had socat installed, I could have used this instead:
+
+<pre class="brush: bash">
+socat UNIX-RECVFROM:socket_file udp4-sendto:1.2.3.4:514
+logger -d -u socket_file bar
+</pre>
+
+Or just use echo and netcat:
+
+<pre class="brush: bash">
+echo message to send | nc 1.2.3.4 514
+</pre>
