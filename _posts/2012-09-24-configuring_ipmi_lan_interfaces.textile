@@ -1,0 +1,49 @@
+--- 
+title: Configuring IPMI LAN interfaces
+layout: post
+tags: Configuring IPMI LAN interfaces
+---
+
+This is to modify the BMC IPMI LAN interface from the operating system, so we
+don't have to reboot into the BIOS interface to modify the configuration.
+
+First, find the LAN interface by iterating through the channels until it prints
+something other than an error (here my channel is 1):
+
+<pre class="brush: bash">
+# i=0
+# until ipmitool lan print $i; do i=$(( i + 1)); done
+# echo $i
+1
+</pre>
+
+Then change the network configuration:
+
+<pre class="brush: bash">
+# ipmitool lan set 1 ipsrc   static
+# ipmitool lan set 1 ipaddr  192.168.228.76
+# ipmitool lan set 1 netmask 255.255.255.0
+# ipmitool lan set 1 vlan    1024
+</pre>
+
+Test from a remote host with (ADMIN/ADMIN was the factory default):
+
+<pre class="brush: bash">
+ipmitool -I lan -H 192.168.228.76 -U ADMIN  -P ADMIN sel list 
+</pre>
+
+To change the password, first find the users for this channel
+
+<pre class="brush: bash>
+# ipmitool user list 1
+ID  Name         Callin  Link Auth  IPMI Msg   Channel Priv Limit
+2   ADMIN            false   false      true       ADMINISTRATOR
+</pre>
+
+and now use the ID to modify the password:
+
+<pre class="brush: bash>
+ipmitool user set password 2 FOO
+</pre>
+
+and make sure you test that it worked...
