@@ -16,4 +16,4 @@ if [ ! -e $FILE ]; then
 	EOF
 fi
 
-vim -c $ _posts/$(date -I)-$(echo $* | tr ' ' _).textile
+vim -c $ $FILE
