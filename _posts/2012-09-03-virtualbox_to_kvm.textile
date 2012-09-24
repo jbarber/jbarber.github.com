@@ -1,0 +1,16 @@
+--- 
+title: virtualbox to kvm
+layout: post
+tags: virtualbox to kvm
+---
+
+On Fedora 16, it appears that KVM can run virtualbox images directly:
+
+<pre>
+qemu-kvm -drive file=QIIME-1.5.0-amd64.vdi,format=vdi
+</pre>
+
+But virsh doesn't support the VDI type yet. Instead, convert the image to QCOW2 first:
+<pre>
+qemu-img convert QIIME-1.5.0-amd64.vdi -O qcow2 QIIME-1.5.0-amd64.qcow2
+</pre>
