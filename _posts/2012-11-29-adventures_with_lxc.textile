@@ -1,0 +1,190 @@
+--- 
+title: Adventures with LXC
+layout: post
+tags: LXC linux containers
+---
+
+This post is a set of notes examining Linux containers (LXC) on RHEL6.
+
+I've been looking at the virtualization options for Linux for production use after coming from a VMware background. One of the options I've investigated is linux containers (LXC), which provides an isolated environment for running processes with a very low overhead. LXC provides encapsulation at the kernel level, rather than providing a virtualized hardware plaftorm - and so has less work to do and so should be more performant and use fewer resources. Given that my current requirements are just to isolate services, containers should be a better fit than full-on virtualization.
+
+Here I describe some of the steps I took in attempting to (and failing to) get a full guest running under RHEL6.2 (actually Scientific Linux) and libvirt (libvirt-0.9.10-21).
+
+First, from a freshly installed host I installed the requiste packages:
+
+<pre class="brush: bash">
+yum install libvirt libvirt-clients
+</pre>
+
+
+I had to disable mDNS in libvirtd, otherwise the daemon would not start (this is probably not required if you have Avahi running):
+
+<pre class="brush: bash">
+echo "mdns_adv = 0" >> /etc/libvirt/libvirtd.conf
+</pre>
+
+Then I started the cgroups and libvirtd services:
+
+<pre class="brush: bash">
+for i in libvirtd cgconfig; do
+    service $i start
+    chkconfig $i on
+done
+</pre>
+
+I used @febootstrap@ to create a minimal SL6.$LATEST OS installation on a prexisting filesystem, this would be the basis of our new LXC guest:
+
+<pre class="brush: bash">
+lvcreate -n test -L 10G vg00
+mkfs -t ext4 /dev/vg00/test
+mkdir /tmp/test
+mount /dev/vg00/test /tmp/test 
+
+yum install febootstrap
+febootstrap sl /tmp/test/ http://ftp.scientificlinux.org/linux/scientific/6x/x86_64/os/
+</pre>
+
+From the "libvirt site":http://libvirt.org/drvlxc.html I used the following libvirt XML declaration as a basis for testing. It runs a single process (@/bin/sh@) in it's own container:
+
+<pre class="brush: bash">
+cat <<EOF > vm1.xml
+<domain type='lxc'>
+  <name>vm1</name>
+  <memory>500000</memory>
+  <os>
+    <type>exe</type>
+    <init>/bin/sh</init>
+  </os>
+  <vcpu>1</vcpu>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/libexec/libvirt_lxc</emulator>
+    <interface type='network'>
+      <source network='default'/>
+    </interface>
+    <console type='pty' />
+  </devices>
+</domain>
+EOF
+
+You can deploy the container with the command:
+
+<pre class="brush: bash">
+virsh -c lxc:/// define vm1.xml
+virsh -c lxc:/// start vm1.xml --console
+</pre>
+
+When you exit the shell, the container will be removed. The container just uses the host filesystem to run in - the environment we created with @febootstrap@ is not yet being used. This works fine and as expected.
+
+This example runs @/sbin/init@ as the controlling processes, and uses a filesystem root located at @/tmp/test@:
+
+<pre class="brush: bash">
+cat <<EOF > fs.xml
+<domain type='lxc'>
+  <name>vm2</name>
+  <memory>32768</memory>
+  <os>
+    <type>exe</type>
+    <init>/sbin/init</init>
+  </os>
+  <vcpu>1</vcpu>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/libexec/libvirt_lxc</emulator>
+    <filesystem type='mount'>
+      <source dir='/tmp/test'/>
+      <target dir='/'/>
+    </filesystem>
+    <interface type='network'>
+      <source network='default'/>
+    </interface>
+    <console type='pty' />
+  </devices>
+</domain>
+EOF
+</pre>
+
+If you try and use this without SELinux enabled (either in permissive or enforcing mode), you will get the error:
+
+<pre>
+error: Failed to create domain from /root/fs.xml
+error: internal error guest failed to start: 2012-11-29 18:00:41.357+0000: 1798: info : libvirt version: 0.9.10, package: 21.el6_3.5 (Scientific Linux, 2012-10-11-10:00:22, sl6.fnal.gov)
+2012-11-29 18:00:41.357+0000: 1798: error : lxcControllerRun:1484 : Failed to query file context on /tmp/test: No data available
+</pre>
+
+If you umount the filesystem, and change:
+<pre class="brush: xml">
+    <filesystem type='mount'>
+      <source dir='/tmp/test'/>
+      <target dir='/'/>
+    </filesystem>
+</pre>
+
+to:
+
+<pre class="brush: xml">
+    <filesystem type='block'>
+      <source dev='/dev/vg00/test'/>
+      <target dir='/'/>
+    </filesystem>
+</pre>
+
+then the container will start, but it doesn't appear to honour it, running from the host root file system instead! This has been encountered by someone running "Debian as well":http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=694638.
+
+If SELinux is enabled, and the container filesystem is on the host filesystem, then the container can be created but you can't login via the console as it gives the error:
+
+<pre>
+Nov 29 12:25:08 test32 login: pam_securetty(login:auth): access denied: tty 'pts/0' is not secure !
+Nov 29 12:25:11 test32 login: FAILED LOGIN 2 FROM (null) FOR root, Authentication failure
+</pre>
+
+Adding @pts/0@ to @/etc/securetty@ in the container allows you to login, but then prompts:
+
+<pre>
+Would you like to enter a security context? [N]
+</pre>
+
+saying "N" kicks you out, whilst saying "Y" and specifying a role also kicks you out. 
+
+However, just removing the line:
+
+<pre class="brush: bash">
+session    required     pam_loginuid.so
+</pre>
+
+from the containers /etc/pam.d/login allows me to login. Success!
+
+So in conclusion, to connect via the console you have to add @pts/0@ to @/etc/securetty@ (or disable @pam_securetty@) and @pam_loginuid@ has to be disabled in all of the PAM services you actually want to connect via.
+
+Looking at the @strace@ of the login process shows that the @pam_loginuid@ module tries to write the user's UID to @/proc/self/loginuid@, but this fails with EPERM. You can replicate this by logging in with @pam_loginuid@ disabled and echo'ing 0 to @/proc/self/loginuid@.
+
+Upgrading libvirt to a later version (1.0.0rc3) from upstream doesn't solve these PAM problems, and indeed required that the @pam_selinux.so@ session lines were removed from the PAM configuration. 1.0.0rc3 also shows the same issue of not using a root filesystem stored on a block device.
+
+h1. Bonus knowledge
+
+h2. Mock
+
+To make sure my problems were not because of a problem with @febootstrap@, I repeated the process with mock, but to no avail:
+
+<pre class="brush: bash">
+yum install -y mock
+adduser -g mock -G mock
+sudo -u mock /usr/bin/mock -r epel-6-x86_64 --init
+sudo -u mock /usr/bin/mock -r epel-6-x86_64 --no-clean --install @core
+</pre>
+
+h2. RPM incompatibilities
+
+It doesn't appear to be easily possible to build images of Fedora 17 or later from RHEL6. This is because the version of RPM shipping with RHEL6 lacks the @rpmlib(X-CheckUnifiedSystemdir)@ capability that is required by the F17 @filesystem@ and @setup@ packages. This dependency was apparently added to hinder yum driven updates of F16 to F17. It could be worked around by compiling a later version of RPM on the RHEL6 and forcing febootstrap/mock to use it instead of the native version.
+
+h2. Compiling libvirt and packaging
+
+I had to modify the @libvirt.spec@ file from @libvirt-1.0.0-rc3.tar.gz@ to correctly end a conditional requirement on @sanlock@ (this is fixed in the libvirt git repo), and build the RPMs with the rpmbuild arguments @--without=sanlock --without=libssh2_transport@ when targeting RHEL6.
+
+Initially, I used mock to build the RPMs for RHEL6 on a F17 system, but this broke the binary RPMs. This was because under the mock chroot the selinuxfs is mounted under @/sys/fs/selinux@ and not the the RHEL6 path of @/selinux@ - the libvirt configure process uses this path to determine where to find selinuxfs on the target system, but this is obviously not the same between RHEL6 and F17 and so gave errors when I tried to create the container.
