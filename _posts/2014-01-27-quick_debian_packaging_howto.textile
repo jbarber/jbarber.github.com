@@ -1,0 +1,83 @@
+--- 
+title: Quick Debian Packaging HOWTO
+layout: post
+tags: Debian Packaging
+---
+
+This is a quick Debian package creation HOWTO for Debian newbies (i.e. me). This is trying to mirror the same kind of process that I use for creating Fedora/RHEL RPMs and is for private packages, so I ignore all of the requiments for changing the upstream software to meet the Debian projects requirements (such as correctly specifying the copyright).
+
+# Get packages to do the build:
+<pre class="brush: bash">sudo apt-get install -y pbuilder devscripts</pre>
+
+#_ Create working directory:
+<pre class="brush: bash">mkdir pkg
+cd pkg</pre>
+
+#_ Grab source:
+<pre class="brush: bash">wget http://example.com/foo-1.2.3.tar.gz
+tar zxf foo-1.2.3.tar.gz
+cd foo-1.2.3</pre>
+
+#_ Build skeleton:
+<pre class="brush: bash">DEBFULLNAME="Jonathan Barber" dh_make -p foo_1.2.3 -f ../foo-1.2.3.tar.gz  -s -e jbarber@sp.up.pt -c bsd</pre>
+
+#_ 
+##_ Add patches to the source, first by adding a completely new file that doesn't already exist:
+<pre class="brush: bash">export QUILT_PATCHES=debian/patches
+quilt new makefile.def
+quilt add Makefile.def
+cat <<'EOF' > Makefile.def
+...
+EOF
+quilt refresh
+quilt header -e
+</pre>
+
+##_ Add a new diff in a seperate patch:
+<pre class="brush: bash">quilt new install.patch
+quilt add Makefile
+cat <<'EOF' > Makefile
+...
+EOF
+quilt refresh
+quilt header -e
+</pre>
+
+##_ Now go back and modify the first patch:
+<pre class="brush: bash">
+quilt pop
+cat <<'EOF' > Makefile.def
+...
+EOF
+quilt refresh
+quilt push
+</pre>
+
+#_ Modify debian/control to include build dependencies ("Build-Reqs")
+
+#_ Modify debian/rules so it knows how to build the source
+
+#_ Build source deb:
+<pre class="brush: bash">
+dpkg-buildpackage -S
+</pre>
+
+#_ Build .deb in clean environment:
+<pre class="brush: bash">
+pbuilder --create --distribution stable
+(cd ..; pbuilder --build *.dsc)
+</pre>
+
+#_ If it fails, make changes, then rerun:
+<pre class="brush: bash">
+dpkg-buildpackage -S
+(cd ..; pbuilder --build *.dsc)
+</pre>
+
+#_ The output from pbuilder is left in /var/cache/pbuilder/result by default
+
+Outstanding issues are discovering how to build the source package without having all of the Build-Reqs installed. But I don't know if this is possible...
+
+Further documentation is available at:
+* "Debian New Maintainers' Guide":http://www.debian.org/doc/manuals/maint-guide/index.en.html
+* "Debian Packaging Tutorial":http://www.debian.org/doc/manuals/packaging-tutorial/packaging-tutorial.en.pdf
